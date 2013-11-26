@@ -27,6 +27,8 @@ watchdog.c
 watchdog.h
 api.c
 api.h
+pwm.c
+pwm.h
 xbootapi.c
 xbootapi.h"
 

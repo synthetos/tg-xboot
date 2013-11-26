@@ -170,6 +170,7 @@ SRC += i2c.c
 SRC += fifo.c
 SRC += watchdog.c
 SRC += api.c
+SRC += pwm.c
 # SRC += ...
 
 # List Assembler source files here.

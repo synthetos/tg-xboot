@@ -9,6 +9,8 @@
 # use config.h
 USE_CONFIG_H = yes
 
+USE_PWM = yes
+
 # MCU
 MCU = atxmega192a3
 
