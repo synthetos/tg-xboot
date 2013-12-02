@@ -39,6 +39,10 @@
 
 void CCPWrite( volatile uint8_t * address, uint8_t value );
 
+#ifdef USE_PWM
+void pwm_init(void);
+#endif
+
 #ifdef USE_INTERRUPTS
 volatile unsigned char comm_mode;
 
@@ -213,6 +217,13 @@ int main(void)
 //			comm_mode = MODE_UART;
 //			for (int i = 0; i < sizeof(startup); i++) { send_char(startup[i]);}
 		//**************************************
+
+        // --------------------------------------------------
+        // PWM keep-alive signal for RC ESC speed controller so it
+        // doesn't go into failsafe lockout.
+#ifdef USE_PWM
+        pwm_init();
+#endif
 
         // --------------------------------------------------
         // End initialization section

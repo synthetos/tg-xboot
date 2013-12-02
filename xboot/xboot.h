@@ -57,6 +57,10 @@
 #include "config.h"
 #endif // USE_CONFIG_H
 
+#ifdef USE_PWM
+#include "pwm.h"
+#endif
+
 // Configuration
 
 // clock config
