@@ -65,8 +65,9 @@ int main(void)
         unsigned char in_bootloader = 0;
         unsigned char val = 0;
         int i = 0;
-        uint32_t j;
+        #ifdef USE_I2C_ADDRESS_NEGOTIATION
         uint8_t k;
+        #endif // USE_I2C_ADDRESS_NEGOTIATION
         
         #ifdef NEED_CODE_PROTECTION
         protected = 1;
@@ -228,29 +229,32 @@ int main(void)
         
 #ifdef USE_ENTER_DELAY
 
-	    k = ENTER_BLINK_COUNT*2;
+        // Entry window: poll the entry triggers every ENTER_POLL_US and toggle
+        // the LED every ENTER_BLINK_MS. The window is timed by _delay_us()
+        // rather than a bare iteration count so it doesn't drift with the
+        // compiler version.
+        uint16_t half_blinks = ENTER_BLINK_COUNT * 2;
 
-		// ++++ Blink count delay hack
-		// This code tests the software reset bit to determine if the bootloader was entered
-		// from the application via a $boot=1 or {"boot"1} command. If so, it will remain in
-		// the boot loader 20 time longer than usual, which should be about a minute.
-		// Thanks to Rob Giseburt for pointing this out.
-		if (RST.STATUS & RST_SRF_bm) {	// it came from a software reset
-			RST.STATUS = 0xFF;			// reset all status bits (just to be sure)
-			k *= 20;					// 20 times the timeout delay, which is typically 3 seconds.
-		}
-		// ++++ regular code resumes from here
-
-        j = ENTER_BLINK_WAIT;
-        while (!in_bootloader && k > 0)
+        // TinyG: if the application requested the bootloader with a software
+        // reset ($boot=1 or {"boot":1}), stay in the bootloader longer so the
+        // host has time to start avrdude. Thanks to Rob Giseburt.
+        if (RST.STATUS & RST_SRF_bm)
         {
-                if (j-- <= 0)
+                RST.STATUS = 0xFF;      // clear all reset status flags
+                half_blinks = ENTER_BLINK_COUNT_SWRESET * 2;
+        }
+
+        uint16_t polls = ENTER_POLLS_PER_TOGGLE;
+        while (!in_bootloader && half_blinks > 0)
+        {
+                _delay_us(ENTER_POLL_US);
+                if (--polls == 0)
                 {
                         #ifdef USE_LED
                         LED_PORT.OUTTGL = (1 << LED_PIN);
                         #endif // USE_LED
-                        j = ENTER_BLINK_WAIT;
-                        k--;
+                        polls = ENTER_POLLS_PER_TOGGLE;
+                        half_blinks--;
                 }
 #else // USE_ENTER_DELAY
                 // Need a small delay when not running loop

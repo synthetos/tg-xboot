@@ -129,8 +129,11 @@
 #define ENTER_PIN_PUEN          1
 
 // ENTER_DELAY
+// Number of LED blinks in the entry window, and half-period in ms
 #define ENTER_BLINK_COUNT       3
-#define ENTER_BLINK_WAIT        30000
+#define ENTER_BLINK_MS          200
+// Blinks to wait after a software reset (app requested the bootloader)
+//#define ENTER_BLINK_COUNT_SWRESET 60
 
 // ENTER_UART
 //#define ENTER_UART_NEED_SYNC
@@ -209,6 +212,22 @@
 
 #endif // USE_CONFIG_H
 
+// ENTER_DELAY
+#ifdef ENTER_BLINK_WAIT
+#error "ENTER_BLINK_WAIT (loop iterations) was replaced by ENTER_BLINK_MS (milliseconds)"
+#endif
+#ifndef ENTER_BLINK_COUNT_SWRESET
+#define ENTER_BLINK_COUNT_SWRESET ENTER_BLINK_COUNT
+#endif
+#define ENTER_POLL_US           50
+#define ENTER_POLLS_PER_TOGGLE  ((uint16_t)((ENTER_BLINK_MS) * 1000UL / ENTER_POLL_US))
+#if ((ENTER_BLINK_MS) * 1000UL / ENTER_POLL_US) > 65535 || ((ENTER_BLINK_MS) * 1000UL / ENTER_POLL_US) == 0
+#error "ENTER_BLINK_MS out of range"
+#endif
+#if (ENTER_BLINK_COUNT_SWRESET) > 32767 || (ENTER_BLINK_COUNT) > 32767
+#error "ENTER_BLINK_COUNT / ENTER_BLINK_COUNT_SWRESET too large"
+#endif
+
 // ENTER_PIN
 #define ENTER_PORT              token_paste2(PORT, ENTER_PORT_NAME)
 #define ENTER_PIN_CTRL          token_paste3(ENTER_PORT.PIN, ENTER_PIN, CTRL)
@@ -267,8 +286,9 @@
 #define UART_BSCALE_VALUE       0
 #define UART_CLK2X              0
 #elif (F_CPU == 32000000L) && (UART_BAUD_RATE == 115200)
-#define UART_BSEL_VALUE         16
-#define UART_BSCALE_VALUE       0
+// 115211 baud (0.01% error); BSEL=16/BSCALE=0 was 117647 (+2.1%)
+#define UART_BSEL_VALUE         1047
+#define UART_BSCALE_VALUE       -6
 #define UART_CLK2X              0
 // None of the above, so calculate something
 #else

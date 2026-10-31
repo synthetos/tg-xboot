@@ -135,8 +135,13 @@ ENTER_PIN_STATE       = 0
 ENTER_PIN_PUEN        = 1
 
 # ENTER_DELAY
+# Normal entry window: ENTER_BLINK_COUNT blinks, LED toggles every ENTER_BLINK_MS
+# (12 x 2 x 200 ms = 4.8 s; the 2013 build was ~4.5 s).
 ENTER_BLINK_COUNT     = 12
-ENTER_BLINK_WAIT      = 250000
+ENTER_BLINK_MS        = 200
+# Window after the app requests the bootloader ($boot=1 / {"boot":1}),
+# detected via the software reset flag: 150 x 2 x 200 ms = 60 s.
+ENTER_BLINK_COUNT_SWRESET = 150
 
 # ENTER_UART
 ENTER_UART_NEED_SYNC = yes
