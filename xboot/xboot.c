@@ -135,11 +135,11 @@ int main(void)
         #ifdef USE_LED
         // Initialize LED pin
         LED_PORT.DIRSET = (1 << LED_PIN);
-        #if LED_PIN_INV
+        #if LED_INV
         LED_PORT.OUTCLR = (1 << LED_PIN);
         #else
         LED_PORT.OUTSET = (1 << LED_PIN);
-        #endif // LED_PIN_INV
+        #endif // LED_INV
         #endif // USE_LED
                 
         // I2C Attach LED_PIN
@@ -178,7 +178,7 @@ int main(void)
         // Initialize UART EN pin
         #ifdef USE_UART_EN_PIN
         UART_EN_PORT.DIRSET = (1 << UART_EN_PIN);
-        #if UART_EN_INV
+        #if UART_EN_PIN_INV
         UART_EN_PORT.OUTSET = (1 << UART_EN_PIN);
         #else // UART_PIN_INV
         UART_EN_PORT.OUTCLR = (1 << UART_EN_PIN);
@@ -358,16 +358,10 @@ int main(void)
                 // Extended address
                 else if (val == CMD_SET_EXT_ADDRESS)
                 {
-                        // Read address high then low
-                        //address = ((ADDR_T)get_char() << 16) | get_2bytes();
-                        asm volatile (
-                                "call get_char"    "\n\t"
-                                "mov  %C0,r24"     "\n\t"
-                                "call get_2bytes"  "\n\t"
-                                "clr  %D0"         "\n\t"
-                                : "=r" (address)
-                                :
-                        );
+                        // Read address: extended byte, then high, then low.
+                        // Separate statements so the read order is sequenced.
+                        address = (ADDR_T)get_char() << 16;
+                        address |= get_2bytes();
                         
                         // acknowledge
                         send_char(REPLY_ACK);
@@ -380,7 +374,7 @@ int main(void)
                         // Wait for completion
 
                         #ifdef USE_WATCHDOG
-                        while (NVM_STATUS & NVM_NVMBUSY_bp)
+                        while (NVM_STATUS & NVM_NVMBUSY_bm)
                         {
                                 // reset watchdog while waiting for erase completion
                                 WDT_Reset();
@@ -484,6 +478,7 @@ int main(void)
                 {
                         EEPROM_write_byte(address, get_char());
                         address++;
+                        send_char(REPLY_ACK);
                 }
                 // Read EEPROM memory
                 else if (val == CMD_READ_EEPROM_BYTE)
@@ -1049,7 +1044,7 @@ void __attribute__ ((noinline)) send_char(unsigned char c)
         if (comm_mode == MODE_UNDEF || comm_mode == MODE_UART)
         {
                 #ifdef USE_UART_EN_PIN
-                #if UART_EN_INV
+                #if UART_EN_PIN_INV
                 UART_EN_PORT.OUTCLR = (1 << UART_EN_PIN);
                 #else // UART_PIN_INV
                 UART_EN_PORT.OUTSET = (1 << UART_EN_PIN);
@@ -1057,7 +1052,7 @@ void __attribute__ ((noinline)) send_char(unsigned char c)
                 #endif // USE_UART_EN_PIN
                 uart_send_char_blocking(c);
                 #ifdef USE_UART_EN_PIN
-                #if UART_EN_INV
+                #if UART_EN_PIN_INV
                 UART_EN_PORT.OUTSET = (1 << UART_EN_PIN);
                 #else // UART_PIN_INV
                 UART_EN_PORT.OUTCLR = (1 << UART_EN_PIN);
@@ -1116,18 +1111,13 @@ void __attribute__ ((noinline)) send_char(unsigned char c)
 
 #endif // USE_INTERRUPTS
 
-unsigned int __attribute__ ((noinline)) get_2bytes()
+unsigned int __attribute__ ((noinline)) get_2bytes(void)
 {
-        // return (get_char() << 8) | get_char();
-        unsigned int result;
-        asm volatile (
-                "call get_char"    "\n\t"
-                "mov  %B0,r24"     "\n\t"
-                "call get_char"    "\n\t"
-                "mov  %A0,r24"     "\n\t"
-                : "=r" (result)
-                :
-        );
+        // High byte first. Two statements so the read order is sequenced.
+        // (This used to be inline asm that held the high byte in a register
+        // get_char() clobbers; it only worked by luck of register allocation.)
+        unsigned int result = (unsigned int)get_char() << 8;
+        result |= get_char();
         return result;
 }
 
