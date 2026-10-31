@@ -59,17 +59,19 @@ LDFLAGS := -mmcu=$(MCU) -Wl,-Map=$(TARGET).map,--cref -Wl,--gc-sections \
            -Wl,--section-start=.text=$(BOOT_SECTION_START)
 
 # ---------------------------------------------------------------------------
-# config.h generation: every make variable defined in $(CONF) whose name
+# config.h generation: every make variable defined in $(CONF) (or on the
+# make command line) whose name
 # starts with one of these prefixes becomes a #define.
 CONFIG_PREFIXES := ATTACH_ ENABLE_ ENTER_ FIFO_ I2C_ LED_ LOCK_ UART_ USE_ WATCHDOG_
 CONFIG_VARS = $(sort $(foreach v,$(filter $(addsuffix %,$(CONFIG_PREFIXES)),$(.VARIABLES)),\
-                $(if $(filter file,$(origin $(v))),$(v))))
+                $(if $(filter file command line,$(origin $(v))),$(v))))
 HASH := \#
 config_line = $(if $(filter yes y,$(strip $($1))),'$(HASH)define $1',\
               $(if $(filter-out no n,$(strip $($1))),'$(HASH)define $1 $(strip $($1))'))
 
 # ---------------------------------------------------------------------------
-.PHONY: all clean size check-size program help
+.PHONY: all clean size check-size program help FORCE
+FORCE:
 .DEFAULT_GOAL := all
 
 all: $(TARGET).hex $(TARGET)-boot.hex $(TARGET).lss $(TARGET).sym check-size
@@ -77,9 +79,9 @@ all: $(TARGET).hex $(TARGET)-boot.hex $(TARGET).lss $(TARGET).sym check-size
 $(BUILD):
 	@mkdir -p $@
 
-# Rewritten only when its contents change, so unrelated edits don't
-# force a full rebuild.
-$(BUILD)/config.h: $(CONF) Makefile | $(BUILD)
+# Re-evaluated on every make (picks up conf and command-line changes) but
+# rewritten only when its contents change, so objects rebuild only then.
+$(BUILD)/config.h: FORCE | $(BUILD)
 	@printf '%s\n' '// Generated from $(CONF) - do not edit' \
 		'// MCU: $(MCU)  F_CPU: $(strip $(F_CPU))' \
 		$(foreach v,$(CONFIG_VARS),$(call config_line,$(v))) > $@.tmp
@@ -115,6 +117,7 @@ size: $(TARGET).elf
 check-size: $(TARGET).elf
 	@used=$$($(SIZE) -A $< | awk '$$1==".text" || $$1==".data" {s+=$$2} END {print s}'); \
 	echo "Boot image: $$used / $(BOOT_SECTION_SIZE) bytes"; \
+	if [ -z "$$used" ]; then echo "ERROR: could not determine image size" >&2; exit 1; fi; \
 	if [ "$$used" -gt "$(BOOT_SECTION_SIZE)" ]; then \
 		echo "ERROR: bootloader does not fit in the boot section" >&2; exit 1; fi
 

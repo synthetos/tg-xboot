@@ -31,6 +31,8 @@ need_dir() {
 }
 
 check_backup() {
+    [ -e "$1/VERIFIED" ] || { echo "backup $1 was not verified (make it with: $0 backup <dir>)" >&2; exit 1; }
+    (cd "$1" && shasum -a 256 -c --quiet SHA256SUMS) || { echo "backup $1 fails its checksums" >&2; exit 1; }
     for f in application.hex boot.hex eeprom.hex fuse2.txt; do
         [ -s "$1/$f" ] || { echo "backup $1 is incomplete (missing $f)" >&2; exit 1; }
     done
@@ -42,17 +44,32 @@ backup)
     need_dir "${1:-}"
     dir=$1
     [ ! -e "$dir" ] || { echo "$dir already exists; refusing to overwrite a backup" >&2; exit 1; }
-    mkdir -p "$dir"
-    pdi -U application:r:"$dir/application.hex":i \
-        -U boot:r:"$dir/boot.hex":i \
-        -U eeprom:r:"$dir/eeprom.hex":i \
-        -U usersig:r:"$dir/usersig.hex":i \
-        -U fuse0:r:"$dir/fuse0.txt":h -U fuse1:r:"$dir/fuse1.txt":h \
-        -U fuse2:r:"$dir/fuse2.txt":h -U fuse4:r:"$dir/fuse4.txt":h \
-        -U fuse5:r:"$dir/fuse5.txt":h -U lock:r:"$dir/lock.txt":h
-    (cd "$dir" && shasum -a 256 ./*.hex > SHA256SUMS)
-    echo "Backup written to $dir"
-    grep -i '0xbf' "$dir/fuse2.txt" >/dev/null || echo "WARNING: fuse2 is $(cat "$dir/fuse2.txt"), expected 0xbf (reset into boot section)"
+    tmp="$dir.partial"
+    rm -rf "$tmp"; mkdir -p "$tmp"
+    pdi -U lock:r:"$tmp/lock.txt":h
+    if ! grep -qi '^0xff$' "$tmp/lock.txt"; then
+        echo "ERROR: lock bits are $(cat "$tmp/lock.txt") (not 0xff); flash reads may be blank." >&2
+        echo "Refusing to make a backup that install would trust. Partial data in $tmp" >&2
+        exit 1
+    fi
+    pdi -U application:r:"$tmp/application.hex":i \
+        -U boot:r:"$tmp/boot.hex":i \
+        -U eeprom:r:"$tmp/eeprom.hex":i \
+        -U usersig:r:"$tmp/usersig.hex":i \
+        -U fuse0:r:"$tmp/fuse0.txt":h -U fuse1:r:"$tmp/fuse1.txt":h \
+        -U fuse2:r:"$tmp/fuse2.txt":h -U fuse4:r:"$tmp/fuse4.txt":h \
+        -U fuse5:r:"$tmp/fuse5.txt":h
+    # Second read to make sure the backup is stable before anything trusts it
+    pdi -U application:r:"$tmp/application.verify.hex":i -U eeprom:r:"$tmp/eeprom.verify.hex":i
+    cmp -s "$tmp/application.hex" "$tmp/application.verify.hex" &&
+        cmp -s "$tmp/eeprom.hex" "$tmp/eeprom.verify.hex" ||
+        { echo "ERROR: second read differs from first; backup left in $tmp" >&2; exit 1; }
+    rm -f "$tmp"/*.verify.hex
+    (cd "$tmp" && shasum -a 256 ./*.hex > SHA256SUMS && touch VERIFIED)
+    mv "$tmp" "$dir"
+    echo "Backup written and verified: $dir"
+    for f in fuse0 fuse1 fuse2 fuse4 fuse5 lock; do printf '  %-6s %s\n' "$f" "$(cat "$dir/$f.txt")"; done
+    grep -qi '^0xbf$' "$dir/fuse2.txt" || echo "WARNING: fuse2 is not 0xbf (reset into boot section)"
     ;;
 install)
     need_dir "${1:-}"; check_backup "$1"

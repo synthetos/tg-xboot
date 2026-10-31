@@ -216,6 +216,7 @@
 #ifdef ENTER_BLINK_WAIT
 #error "ENTER_BLINK_WAIT (loop iterations) was replaced by ENTER_BLINK_MS (milliseconds)"
 #endif
+#ifdef USE_ENTER_DELAY
 #ifndef ENTER_BLINK_COUNT_SWRESET
 #define ENTER_BLINK_COUNT_SWRESET ENTER_BLINK_COUNT
 #endif
@@ -227,6 +228,7 @@
 #if (ENTER_BLINK_COUNT_SWRESET) > 32767 || (ENTER_BLINK_COUNT) > 32767
 #error "ENTER_BLINK_COUNT / ENTER_BLINK_COUNT_SWRESET too large"
 #endif
+#endif // USE_ENTER_DELAY
 
 // ENTER_PIN
 #define ENTER_PORT              token_paste2(PORT, ENTER_PORT_NAME)
