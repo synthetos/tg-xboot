@@ -101,6 +101,7 @@ ISR(I2C_DEVICE_ISR)
 #endif // USE_I2C
 #endif // USE_INTERRUPTS
 
+#ifdef USE_I2C
 void i2c_init(void)
 {
         I2C_DEVICE.CTRL = 0;
@@ -132,6 +133,4 @@ void i2c_deinit(void)
         I2C_DEVICE.SLAVE.ADDR = 0;
         I2C_DEVICE.SLAVE.ADDRMASK = 0;
 }
-
-
-
+#endif // USE_I2C

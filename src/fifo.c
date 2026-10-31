@@ -39,6 +39,7 @@
  * and probaly also the NVM needs to be cared about
  */ 
 
+#ifdef USE_FIFO
 #define REVERSE(a) do                     \
 {                                         \
   a=((a>>1)&0x55)|((a<<1)&0xaa);          \
@@ -98,3 +99,4 @@ void fifo_send_char_blocking(uint8_t c)
         };
         fifo_send_char(c);
 }
+#endif // USE_FIFO

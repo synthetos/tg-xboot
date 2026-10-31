@@ -1,4 +1,9 @@
-# XBoot Readme
+# XBoot Readme (upstream)
+
+> This is the upstream XBoot documentation (v1.7, Alex Forencich), kept for
+> its option and API reference. Build and flash instructions for this TinyG
+> fork are in the top-level [README](../README.md): this fork has its own
+> Makefile, and the TinyG settings live in `conf/x192a3.mk`.
 
 See the XBoot wiki for the latest version of this information:
 http://alexforencich.com/wiki/en/xboot/
