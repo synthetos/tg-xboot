@@ -50,7 +50,7 @@
 // Version
 #define XBOOT_VERSION_MAJOR 1
 #define XBOOT_VERSION_MINOR 7
-#define XBOOT_TINYG_REVISION 1		// added a revision for TinyG uses
+#define XBOOT_TINYG_REVISION 2		// TinyG fork revision (2: 2026 toolchain/bug-fix update)
 
 // config.h
 #ifdef USE_CONFIG_H
