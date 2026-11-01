@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="440" height="112" viewBox="0 0 440 112" role="img" aria-labelledby="t">
+  <title id="t">tg-xboot</title>
+  <style>
+    .ink  { fill: #1f2328; }
+    .sub  { fill: #59636e; }
+    .chip { fill: #ffffff; stroke: #1f2328; }
+    .pin  { stroke: #1f2328; }
+    .acc  { fill: #1a7f37; }
+    .accs { stroke: #1a7f37; }
+    @media (prefers-color-scheme: dark) {
+      .ink  { fill: #e6edf3; }
+      .sub  { fill: #9198a1; }
+      .chip { fill: #0d1117; stroke: #e6edf3; }
+      .pin  { stroke: #e6edf3; }
+      .acc  { fill: #3fb950; }
+      .accs { stroke: #3fb950; }
+    }
+  </style>
+
+  <!-- chip: QFP body with pins -->
+  <g transform="translate(16 16)">
+    <g class="pin" stroke-width="4" stroke-linecap="round">
+      <path d="M22 0v8M38 0v8M54 0v8M70 0v8"/>
+      <path d="M22 72v8M38 72v8M54 72v8M70 72v8"/>
+      <path d="M0 22h8M0 38h8M0 54h8M0 70h8" transform="translate(0 -6)"/>
+      <path d="M84 16h8M84 32h8M84 48h8M84 64h8"/>
+    </g>
+    <rect class="chip" x="8" y="8" width="76" height="64" rx="8" stroke-width="4"/>
+    <!-- X whose rising stroke is an upload arrow -->
+    <path class="pin" d="M30 28 L62 56" stroke-width="7" stroke-linecap="round"/>
+    <path class="accs" d="M30 56 L56 30" stroke-width="7" stroke-linecap="round"/>
+    <path class="acc" d="M64 22 L45 25 L61 41 Z"/>
+    <circle class="acc" cx="19" cy="19" r="3"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="128" y="62" class="ink"
+        font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"
+        font-size="44" font-weight="700" letter-spacing="-1">tg-<tspan class="acc">x</tspan>boot</text>
+  <text x="130" y="88" class="sub"
+        font-family="-apple-system, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="15">TinyG bootloader · AVR109 over USB</text>
+</svg>

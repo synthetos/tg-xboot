@@ -1,0 +1,97 @@
+name: build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Release toolchain: Ubuntu 24.04's AVR packages (also checks the
+  # Makefile under dash, Ubuntu's /bin/sh).
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-avr binutils-avr avr-libc make
+
+      - name: Build
+        run: make
+
+      - name: Record toolchain
+        run: |
+          {
+            avr-gcc --version | head -n1
+            dpkg-query -W -f='${Package} ${Version}\n' gcc-avr binutils-avr avr-libc
+            echo "runner: $ImageOS $ImageVersion"
+          } > build/x192a3/TOOLCHAIN.txt
+          cat build/x192a3/TOOLCHAIN.txt
+
+      - name: Summary
+        run: |
+          {
+            echo '### TinyG bootloader'
+            echo
+            echo '```'
+            cat build/x192a3/TOOLCHAIN.txt
+            echo
+            avr-size -A build/x192a3/xboot.elf | grep -E '^(section|\.text|\.data|\.bss)'
+            echo
+            (cd build/x192a3 && sha256sum xboot.hex xboot-boot.hex)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: tg-xboot-${{ github.sha }}
+          path: |
+            build/x192a3/xboot.hex
+            build/x192a3/xboot-boot.hex
+            build/x192a3/xboot.elf
+            build/x192a3/xboot.lss
+            build/x192a3/config.h
+            build/x192a3/TOOLCHAIN.txt
+          if-no-files-found: error
+
+  # Tags (v*) produce a DRAFT release. Publish it by hand only after this
+  # exact artifact has been tested on real TinyG hardware.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: tg-xboot-${{ github.sha }}
+          path: out
+
+      - name: Package
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          mkdir dist
+          cp out/xboot.hex      "dist/tg-xboot-${tag}.hex"
+          cp out/xboot-boot.hex "dist/tg-xboot-${tag}-boot.hex"
+          cp out/xboot.elf      "dist/tg-xboot-${tag}.elf"
+          cp out/TOOLCHAIN.txt  dist/TOOLCHAIN.txt
+          (cd dist && sha256sum * > SHA256SUMS)
+          cat dist/SHA256SUMS
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --title "tg-xboot $GITHUB_REF_NAME" \
+            --generate-notes
