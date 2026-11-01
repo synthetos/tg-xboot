@@ -2,17 +2,20 @@
 # Hardware test helper: TinyG (ATxmega192A3) + Atmel-ICE (PDI) + USB serial.
 #
 # Environment:
-#   ICE=<serial>     Atmel-ICE USB serial number (required if more than one is
-#                    attached; see `avrdude -c atmelice_pdi -P usb:xx -p x192a3`)
+#   ICE=<serial>     Atmel-ICE USB serial number (required: with several ICEs
+#                    attached avrdude would otherwise pick one arbitrarily)
 #   PORT=<device>    TinyG USB serial port, e.g. /dev/cu.usbserial-DN01ABCD
 #   BOOT_HEX=<file>  bootloader to install (default build/x192a3/xboot-boot.hex)
 #
 # Commands:
 #   backup  <dir>        Read app, boot, EEPROM, user signature, fuses, lock via PDI.
-#   install <backupdir>  Chip erase, write BOOT_HEX, restore app + EEPROM from the
-#                        backup, verify. Fuses are not touched.
-#   restore <backupdir>  Chip erase and write back boot + app + EEPROM exactly as
-#                        backed up (returns the board to its previous bootloader).
+#   install <backupdir>  Erase and write ONLY the boot section with BOOT_HEX, then
+#                        verify application + EEPROM are byte-identical to the backup.
+#   restore <backupdir>  Same, writing back the backed-up boot section (returns the
+#                        board to its previous bootloader).
+#
+# Never chip-erases: with EESAVE off that would wipe the EEPROM settings.
+# Fuses and lock bits are never written.
 #   reset                Reset the board through the ICE (starts the bootloader).
 #   avr109  <image.hex>  Reset via ICE, then flash + verify the image over USB
 #                        serial through the bootloader (needs PORT).
@@ -22,7 +25,8 @@ cd "$(dirname "$0")/.."
 
 MCU=x192a3
 BOOT_HEX=${BOOT_HEX:-build/x192a3/xboot-boot.hex}
-ICE_PORT=usb${ICE:+:$ICE}
+[ -n "${ICE:-}" ] || { echo "set ICE=<Atmel-ICE serial number>" >&2; exit 2; }
+ICE_PORT=usb:$ICE
 
 pdi() { avrdude -p "$MCU" -c atmelice_pdi -P "$ICE_PORT" "$@"; }
 
@@ -36,6 +40,22 @@ check_backup() {
     for f in application.hex boot.hex eeprom.hex fuse2.txt; do
         [ -s "$1/$f" ] || { echo "backup $1 is incomplete (missing $f)" >&2; exit 1; }
     done
+}
+
+# Replace only the boot section, then prove nothing else changed.
+swap_boot() {
+    backup=$1 image=$2
+    pdi -D -T "erase boot" -U boot:w:"$image":i
+    t=$(mktemp -d)
+    pdi -U application:r:"$t/application.hex":i -U eeprom:r:"$t/eeprom.hex":i
+    if cmp -s "$t/application.hex" "$backup/application.hex" &&
+       cmp -s "$t/eeprom.hex" "$backup/eeprom.hex"; then
+        echo "OK: boot section replaced; application and EEPROM unchanged"
+        rm -rf "$t"
+    else
+        echo "ERROR: application or EEPROM differs from backup! Reads kept in $t" >&2
+        exit 1
+    fi
 }
 
 cmd=${1:-}; shift || true
@@ -69,20 +89,17 @@ backup)
     mv "$tmp" "$dir"
     echo "Backup written and verified: $dir"
     for f in fuse0 fuse1 fuse2 fuse4 fuse5 lock; do printf '  %-6s %s\n' "$f" "$(cat "$dir/$f.txt")"; done
-    grep -qi '^0xbf$' "$dir/fuse2.txt" || echo "WARNING: fuse2 is not 0xbf (reset into boot section)"
+    # fuse2 bit 6 (BOOTRST) must be 0 so reset starts the bootloader
+    [ $(( $(cat "$dir/fuse2.txt") & 0x40 )) -eq 0 ] || echo "WARNING: fuse2 BOOTRST is not set to the boot section"
     ;;
 install)
     need_dir "${1:-}"; check_backup "$1"
     [ -s "$BOOT_HEX" ] || { echo "$BOOT_HEX not found; run make first" >&2; exit 1; }
-    pdi -e -U boot:w:"$BOOT_HEX":i \
-        -U application:w:"$1/application.hex":i \
-        -U eeprom:w:"$1/eeprom.hex":i
+    swap_boot "$1" "$BOOT_HEX"
     ;;
 restore)
     need_dir "${1:-}"; check_backup "$1"
-    pdi -e -U boot:w:"$1/boot.hex":i \
-        -U application:w:"$1/application.hex":i \
-        -U eeprom:w:"$1/eeprom.hex":i
+    swap_boot "$1" "$1/boot.hex"
     ;;
 reset)
     pdi -U signature:r:-:h >/dev/null
@@ -95,7 +112,7 @@ avr109)
     avrdude -p "$MCU" -c avr109 -P "$PORT" -b 115200 -U flash:w:"$1":i
     ;;
 *)
-    sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
+    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac

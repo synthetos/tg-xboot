@@ -1,4 +1,4 @@
-# tg-xboot
+<p align="center"><img src="docs/logo.svg" alt="tg-xboot" width="440"></p>
 
 The bootloader for [TinyG](https://github.com/synthetos/TinyG) (ATxmega192A3).
 It is a fork of Alex Forencich's [XBoot](https://github.com/alexforencich/xboot)
@@ -60,7 +60,24 @@ make program PROGRAMMER=avrispmkii        # other programmer
 
 `make program` erases the whole chip, including the TinyG firmware and (unless
 EESAVE is set) the EEPROM settings. To swap only the bootloader and keep
-everything else, use `scripts/hwtest.sh` (backup → install → restore).
+everything else, use `scripts/hwtest.sh`, which never chip-erases:
+
+```sh
+export ICE=<Atmel-ICE serial>                     # always name the ICE explicitly
+scripts/hwtest.sh backup  backups/board1          # PDI read of everything, read twice and compared
+scripts/hwtest.sh install backups/board1          # erase + write only the boot section, prove app/EEPROM unchanged
+scripts/hwtest.sh restore backups/board1          # put the backed-up bootloader back
+```
+
+`scripts/avr109_probe.py` checks the bootloader protocol against such a backup
+(identity, 2-byte addresses, extended addresses above 128 KB, EEPROM reads,
+byte-write ACK) and measures the entry windows:
+
+```sh
+uv run --with pyserial scripts/avr109_probe.py probe        --port /dev/cu.usbserial-XXXX --ice $ICE --backup backups/board1
+uv run --with pyserial scripts/avr109_probe.py window-reset --port /dev/cu.usbserial-XXXX --ice $ICE
+uv run --with pyserial scripts/avr109_probe.py window-boot  --port /dev/cu.usbserial-XXXX
+```
 
 **TinyG firmware**, through the bootloader over USB serial:
 
