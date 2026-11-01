@@ -10,9 +10,8 @@ and speaks the AVR109 protocol over the TinyG USB serial port (USARTC0,
 You need `avr-gcc`, `avr-libc`, and GNU make. AVR Studio is not required.
 
 ```sh
-scripts/build.sh            # local toolchain if installed, otherwise Docker
-scripts/build.sh --docker   # pinned release toolchain (Debian trixie, avr-gcc 14)
-make                        # same as a native build
+scripts/build.sh            # checks for the toolchain, then runs make
+make                        # same thing
 ```
 
 Installing a toolchain:
@@ -22,7 +21,6 @@ Installing a toolchain:
 | macOS | `brew tap osx-cross/avr && brew install avr-gcc avrdude` |
 | Debian/Ubuntu | `sudo apt install gcc-avr binutils-avr avr-libc make avrdude` |
 | Fedora | `sudo dnf install avr-gcc avr-binutils avr-libc make avrdude` |
-| Docker | `docker build -t tg-xboot-build .` (`scripts/build.sh --docker` does this for you) |
 
 Output goes to `build/x192a3/`:
 
@@ -100,11 +98,13 @@ Start avrdude within the entry window: reset the board, or send `$boot=1` first.
 
 ## CI and releases
 
-GitHub Actions builds every push and pull request, with the pinned Docker
-toolchain and with Ubuntu's own avr-gcc, and uploads the images as artifacts.
-Pushing a `v*` tag creates a **draft** release with the hex files and
-SHA256SUMS. Publish the draft only after the image has been tested on a real
-TinyG.
+GitHub Actions builds every push and pull request on Ubuntu 24.04 with its
+AVR packages (`gcc-avr`, `avr-libc`) and uploads the hex files as artifacts,
+along with `TOOLCHAIN.txt` recording the exact package versions. Pushing a
+`v*` tag creates a **draft** release with the hex files and SHA256SUMS.
+Publish the draft only after that exact artifact has been tested on a real
+TinyG: CI's compiler differs from a local Homebrew build, so the binaries
+differ too.
 
 ## License
 

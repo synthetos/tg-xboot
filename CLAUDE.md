@@ -11,7 +11,7 @@ The bootloader for TinyG (ATxmega192A3). It is a fork of Alex Forencich's XBoot 
 ```sh
 make                         # build build/x192a3/{xboot.hex, xboot-boot.hex, .lss, .map, .sym}; fails if > 8 KB boot section
 make CONF=conf/other.mk      # alternate config (output in build/other/)
-scripts/build.sh [--docker]  # native if avr-gcc is installed, else the pinned Docker toolchain (avr-gcc 14)
+scripts/build.sh             # checks for avr-gcc (prints install hints), then make; releases are built by CI (Ubuntu gcc-avr)
 make program                 # avrdude PDI (PROGRAMMER=atmelice_pdi): chip erase + boot + fuse2 -- wipes the TinyG app
 scripts/hwtest.sh ...        # backup / install / restore / avr109 on real boards (ICE=<serial>, PORT=<tty>)
 ```
@@ -20,7 +20,8 @@ There are no unit tests, and simavr has no XMEGA core. Verify changes by:
 1. Building with no warnings. CI also builds with Ubuntu's older avr-gcc under dash.
 2. Reading `build/x192a3/xboot.lss` for the code you touched.
 3. Comparing raw binaries (`avr-objcopy -I ihex -O binary`), not `.hex` text: record layout differs between objcopy versions.
-4. Testing on hardware. Never push or tag until a build has passed hardware tests (user rule). Release tags create **draft** GitHub releases for that reason.
+4. Testing on hardware with `scripts/hwtest.sh` and `scripts/avr109_probe.py` (see README). Never push or tag until a build has passed hardware tests (user rule). Release tags create **draft** GitHub releases; hardware-test the CI artifact itself before publishing, because CI's compiler differs from a local build.
+5. ATxmega192A3 EEPROM is 2 KB (addresses >= 0x800 mirror). Never chip-erase test boards: EESAVE is off, so it wipes the TinyG settings.
 
 ## Configuration flow
 
