@@ -64,6 +64,14 @@ int main(void)
         unsigned char in_bootloader = 0;
         unsigned char val = 0;
         int i = 0;
+        #ifdef USE_BAD_COMMAND_LIMIT
+        uint8_t bad_commands = 0;       // consecutive unknown command bytes
+        uint8_t bad_before;
+        #endif // USE_BAD_COMMAND_LIMIT
+        #ifdef USE_WRITE_ARMING
+        uint8_t write_state = WS_LOCKED;
+        uint8_t prev_write_state;
+        #endif // USE_WRITE_ARMING
         #ifdef USE_I2C_ADDRESS_NEGOTIATION
         uint8_t k;
         #endif // USE_I2C_ADDRESS_NEGOTIATION
@@ -342,7 +350,18 @@ int main(void)
                 #ifdef USE_WATCHDOG
                 WDT_Reset();
                 #endif // USE_WATCHDOG
+
+                #ifdef USE_BAD_COMMAND_LIMIT
+                bad_before = bad_commands;
+                #endif // USE_BAD_COMMAND_LIMIT
                 
+                #ifdef USE_WRITE_ARMING
+                // 'T' <device code> only arms writes if 'P' comes next
+                prev_write_state = write_state;
+                if (write_state == WS_PENDING)
+                        write_state = WS_LOCKED;
+                #endif // USE_WRITE_ARMING
+
                 // Main bootloader parser
                 // check autoincrement status
                 if (val == CMD_CHECK_AUTOINCREMENT)
@@ -370,7 +389,7 @@ int main(void)
                         send_char(REPLY_ACK);
                 }
                 // Chip erase
-                else if (val == CMD_CHIP_ERASE)
+                else if (val == CMD_CHIP_ERASE && WRITES_ALLOWED)
                 {
                         // Erase the application section
                         Flash_EraseApplicationSection();
@@ -386,9 +405,12 @@ int main(void)
                         SP_WaitForSPM();
                         #endif // USE_WATCHDOG
                         
-                        // Erase EEPROM
+                        #ifdef ENABLE_CHIP_ERASE_EEPROM
+                        // Erase EEPROM (upstream XBoot behavior; TinyG
+                        // keeps its settings there, so its config omits it)
                         EEPROM_erase_all();
-                        
+                        #endif // ENABLE_CHIP_ERASE_EEPROM
+
                         // turn off read protection
                         #ifdef NEED_CODE_PROTECTION
                         protected = 0;
@@ -408,7 +430,7 @@ int main(void)
                         send_char(SPM_PAGESIZE & 0xFF);
                 }
                 // Block load
-                else if (val == CMD_BLOCK_LOAD)
+                else if (val == CMD_BLOCK_LOAD && WRITES_ALLOWED)
                 {
                         // Block size
                         i = get_2bytes();
@@ -445,14 +467,14 @@ int main(void)
                         address++;
                 }
                 // Write program memory low byte
-                else if (val == CMD_WRITE_LOW_BYTE)
+                else if (val == CMD_WRITE_LOW_BYTE && WRITES_ALLOWED)
                 {
                         // get low byte
                         i = get_char();
                         send_char(REPLY_ACK);
                 }
                 // Write program memory high byte
-                else if (val == CMD_WRITE_HIGH_BYTE)
+                else if (val == CMD_WRITE_HIGH_BYTE && WRITES_ALLOWED)
                 {
                         // get high byte; combine
                         i |= (get_char() << 8);
@@ -461,7 +483,7 @@ int main(void)
                         send_char(REPLY_ACK);
                 }
                 // Write page
-                else if (val == CMD_WRITE_PAGE)
+                else if (val == CMD_WRITE_PAGE && WRITES_ALLOWED)
                 {
                         if (address >= (APP_SECTION_SIZE>>1))
                         {
@@ -477,7 +499,7 @@ int main(void)
                 #endif // ENABLE_FLASH_BYTE_SUPPORT
                 #ifdef ENABLE_EEPROM_BYTE_SUPPORT
                 // Write EEPROM memory
-                else if (val == CMD_WRITE_EEPROM_BYTE)
+                else if (val == CMD_WRITE_EEPROM_BYTE && WRITES_ALLOWED)
                 {
                         EEPROM_write_byte(address, get_char());
                         address++;
@@ -500,7 +522,7 @@ int main(void)
                 #ifdef ENABLE_LOCK_BITS
 
                 // Write lockbits
-                else if (val == CMD_WRITE_LOCK_BITS)
+                else if (val == CMD_WRITE_LOCK_BITS && WRITES_ALLOWED)
                 {
                         SP_WriteLockBits( get_char() );
                         send_char(REPLY_ACK);
@@ -531,15 +553,30 @@ int main(void)
                 #endif // ENABLE_FUSE_BITS
 
                 // Enter and leave programming mode
-                else if ((val == CMD_ENTER_PROG_MODE) || (val == CMD_LEAVE_PROG_MODE))
+                else if (val == CMD_ENTER_PROG_MODE)
                 {
-                        // just acknowledge
+                        #ifdef USE_WRITE_ARMING
+                        // Arm writes only directly after 'T' <device code>
+                        // (avrdude always sends exactly that), or re-arm.
+                        if (prev_write_state != WS_LOCKED)
+                                write_state = WS_ARMED;
+                        #endif // USE_WRITE_ARMING
+                        send_char(REPLY_ACK);
+                }
+                else if (val == CMD_LEAVE_PROG_MODE)
+                {
+                        #ifdef USE_WRITE_ARMING
+                        write_state = WS_LOCKED;
+                        #endif // USE_WRITE_ARMING
                         send_char(REPLY_ACK);
                 }
                 // Exit bootloader
                 else if (val == CMD_EXIT_BOOTLOADER)
                 {
                         in_bootloader = 0;
+                        #ifdef USE_WRITE_ARMING
+                        write_state = WS_LOCKED;
+                        #endif // USE_WRITE_ARMING
                         send_char(REPLY_ACK);
                 }
                 // Get programmer type
@@ -552,15 +589,27 @@ int main(void)
                 else if (val == CMD_DEVICE_CODE)
                 {
                         // send only this device
-                        send_char(123); // TODO
+                        send_char(XBOOT_DEVICE_CODE);
                         // terminator
                         send_char(0);
                 }
                 // Set LED, clear LED, and set device type
-                else if ((val == CMD_SET_LED) || (val == CMD_CLEAR_LED) || (val == CMD_SET_TYPE))
+                else if ((val == CMD_SET_LED) || (val == CMD_CLEAR_LED))
                 {
                         // discard parameter
                         get_char();
+                        send_char(REPLY_ACK);
+                }
+                else if (val == CMD_SET_TYPE)
+                {
+                        #ifdef USE_WRITE_ARMING
+                        // Right code: 'P' must follow to arm.  Any other
+                        // code locks writes, even in an armed session.
+                        write_state = (get_char() == XBOOT_DEVICE_CODE) ?
+                                WS_PENDING : WS_LOCKED;
+                        #else // USE_WRITE_ARMING
+                        get_char();
+                        #endif // USE_WRITE_ARMING
                         send_char(REPLY_ACK);
                 }
                 // Return program identifier
@@ -769,8 +818,37 @@ autoneg_done:
                 else if (val != CMD_SYNC)
                 {
                         send_char(REPLY_ERROR);
+                        #ifdef USE_BAD_COMMAND_LIMIT
+                        bad_commands++;
+                        #endif // USE_BAD_COMMAND_LIMIT
+                        #ifdef USE_WRITE_ARMING
+                        // Anything that is not AVR109 (or a write before
+                        // arming) locks writes until the next 'T' + 'P'.
+                        write_state = WS_LOCKED;
+                        #endif // USE_WRITE_ARMING
                 }
-                
+
+                #ifdef USE_BAD_COMMAND_LIMIT
+                // Text that is not AVR109 (e.g. JSON or G-code sent to a
+                // board left in the bootloader by an interrupted flash) would
+                // otherwise be executed byte by byte as commands.  Reset after
+                // a run of unknown bytes; a reset re-runs the entry window,
+                // which needs ESC, so the text is ignored from then on.
+                if (bad_commands == bad_before)
+                {
+                        bad_commands = 0;
+                }
+                else if (bad_commands >= USE_BAD_COMMAND_LIMIT)
+                {
+                        #ifdef USE_WATCHDOG
+                        // Watchdog reset: normal entry window, then the app
+                        for (;;) { }
+                        #else // USE_WATCHDOG
+                        _PROTECTED_WRITE(RST.CTRL, RST_SWRST_bm);
+                        #endif // USE_WATCHDOG
+                }
+                #endif // USE_BAD_COMMAND_LIMIT
+
                 // Wait for any lingering SPM instructions to finish
                 Flash_WaitForSPM();
                 

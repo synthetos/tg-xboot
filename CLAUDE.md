@@ -41,7 +41,7 @@ Pitfalls:
 `src/xboot.c` `main()` runs straight through:
 1. **Init**: TinyG clock (external 16 MHz crystal ×2 PLL, set with `_PROTECTED_WRITE`), vector table remapped to the boot section, LED and UART.
 2. **Entry window**: polls the triggers every `ENTER_POLL_US` (a cycle-exact `_delay_us`, so the timing doesn't depend on the compiler) and toggles the LED every `ENTER_BLINK_MS`. TinyG requires ESC (`CMD_SYNC`) to enter. The software-reset flag (`$boot=1`) selects `ENTER_BLINK_COUNT_SWRESET`.
-3. **Command loop**: AVR109 parser (opcodes in `protocol.h`). TinyG uses the interrupt-driven `get_char`/`send_char`, which have 2-byte RX buffers.
+3. **Command loop**: AVR109 parser (opcodes in `protocol.h`). TinyG uses the interrupt-driven `get_char`/`send_char`, which have 2-byte RX buffers. Safety against stray text (issue #3): writes and erase are gated by `USE_WRITE_ARMING` (armed by `T` <`XBOOT_DEVICE_CODE`> immediately followed by `P`, which is the end of avrdude's handshake; locked again by any unknown byte, `L` or `E`). `USE_BAD_COMMAND_LIMIT` consecutive unknown bytes cause a watchdog reset. `get_char` blocks without feeding the watchdog, so idle command mode resets after about 1 s. `e` leaves the EEPROM alone unless `ENABLE_CHIP_ERASE_EEPROM` is set. Lock-bit commands are off. Don't weaken these: TinyG hosts send JSON and G-code to the same port.
 4. **Exit**: `install_firmware()` (applies an image staged through the API), peripheral de-init, vector table restored, `jmp 0`.
 
 Other pieces:
