@@ -46,6 +46,18 @@ Bootloader behavior on TinyG:
   starts the application.
 - When TinyG reboots into the bootloader itself (`$boot=1` or `{"boot":1}`,
   detected through the software-reset flag), the window is 60 s.
+- In command mode, erase and write commands are refused until the host sends
+  `T` with the device code (0x7b) followed directly by `P`, which is how
+  avrdude ends its handshake. Any byte that isn't an AVR109 command locks
+  them again.
+- Two unknown bytes in a row (JSON, G-code, or other text sent to a board
+  still in the bootloader after an interrupted flash) reset the board. It
+  goes back through the entry window and starts the application. Command
+  mode also resets after about 1 s with no input (watchdog).
+- Chip erase (`e`) erases only the application. The bootloader never erases
+  the EEPROM, so the TinyG settings survive. Lock-bit commands are disabled.
+  (2.0.0 and older erased the EEPROM on `e` and could execute stray text as
+  commands; see issue #3.)
 
 ## Flashing
 
@@ -75,13 +87,22 @@ byte-write ACK) and measures the entry windows:
 uv run --with pyserial scripts/avr109_probe.py probe        --port /dev/cu.usbserial-XXXX --ice $ICE --backup backups/board1
 uv run --with pyserial scripts/avr109_probe.py window-reset --port /dev/cu.usbserial-XXXX --ice $ICE
 uv run --with pyserial scripts/avr109_probe.py window-boot  --port /dev/cu.usbserial-XXXX
+uv run --with pyserial scripts/avr109_probe.py stray        --port /dev/cu.usbserial-XXXX --ice $ICE --backup backups/board1
 ```
+
+`stray` sends the start-up JSON from issue #3 to a board in command mode and
+checks that nothing is executed: the board resets to the application, and the
+application, EEPROM and lock byte are unchanged.
 
 **TinyG firmware**, through the bootloader over USB serial:
 
 ```sh
-avrdude -p x192a3 -c avr109 -P /dev/cu.usbserial-XXXX -b 115200 -U flash:w:tinyg.hex:i
+avrdude -p x192a3 -c avr109 -P /dev/cu.usbserial-XXXX -b 115200 -D -U flash:w:tinyg.hex:i
 ```
+
+`-D` stops avrdude from sending chip erase first. The bootloader erases each
+page as it writes it, so the erase isn't needed, and on boards with an older
+bootloader (2.0.0 and before) chip erase also wipes the TinyG settings.
 
 Start avrdude within the entry window: reset the board, or send `$boot=1` first.
 

@@ -473,6 +473,18 @@ Enables flash byte access support
 
 Enables EEPROM byte access support
 
+#### TinyG fork options
+
+These are not in upstream XBoot (see issue #3 in synthetos/tg-xboot):
+
+- `ENABLE_CHIP_ERASE_EEPROM`: chip erase (`e`) also erases the EEPROM
+  (upstream behavior). Without it, `e` erases only the application section.
+- `USE_WRITE_ARMING`: erase and write commands are refused until `T`
+  followed by the device code reported by `t` (123), then directly `P`.
+  Any unknown command byte, `L` or `E` locks them again.
+- `USE_BAD_COMMAND_LIMIT = n`: after n consecutive unknown command bytes,
+  reset (watchdog reset if `USE_WATCHDOG`, otherwise software reset).
+
 #### 3.7.4 ENABLE_LOCK_BITS
 
 Enables lock bit read and write support (note: cannot clear lock bits to 1,

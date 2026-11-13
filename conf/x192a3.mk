@@ -63,10 +63,26 @@ WATCHDOG_TIMEOUT   = WDT_PER_1KCLK_gc
 ENABLE_BLOCK_SUPPORT       = yes
 ENABLE_FLASH_BYTE_SUPPORT  = yes
 ENABLE_EEPROM_BYTE_SUPPORT = yes
-ENABLE_LOCK_BITS           = yes
+# Lock-bit commands off: flashing never needs them, and a stray 'l' in text
+# sent to a board left in command mode could lock the chip (issue #3).
+ENABLE_LOCK_BITS           = no
+# Fuse bits are read-only from the bootloader ('F' 'N' 'Q').
 ENABLE_FUSE_BITS           = yes
 ENABLE_FLASH_ERASE_WRITE   = yes
 ENABLE_CRC_SUPPORT         = yes
+# Chip erase ('e') erases the application section only; the EEPROM holds the
+# TinyG settings and is never erased by the bootloader (issue #3).
+ENABLE_CHIP_ERASE_EEPROM   = no
+# Erase/write commands are refused until the host sends 'T' <device code>
+# followed directly by 'P' (the end of avrdude's handshake). Any unknown
+# byte locks them again, so text sent to a board left in command mode after
+# an interrupted flash cannot write anything (issue #3).
+USE_WRITE_ARMING           = yes
+# After this many consecutive unknown command bytes (e.g. JSON or G-code sent
+# to a board left in command mode), reset back to the entry window instead of
+# executing the text as commands. avrdude's only unsupported command in a
+# normal session is 'v', always followed by a supported one.
+USE_BAD_COMMAND_LIMIT      = 2
 
 # --- Application API (see app-api/) ------------------------------------
 ENABLE_API                 = yes

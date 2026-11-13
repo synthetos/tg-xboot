@@ -50,7 +50,7 @@
 // Version
 #define XBOOT_VERSION_MAJOR 1
 #define XBOOT_VERSION_MINOR 7
-#define XBOOT_TINYG_REVISION 2		// TinyG fork revision (2: 2026 toolchain/bug-fix update)
+#define XBOOT_TINYG_REVISION 3		// TinyG fork revision (2: 2026 toolchain/bug-fix update; 3: stray-text hardening, issue #3)
 
 // config.h
 #ifdef USE_CONFIG_H
@@ -107,6 +107,7 @@
 #define ENABLE_EEPROM_BYTE_SUPPORT
 #define ENABLE_LOCK_BITS
 #define ENABLE_FUSE_BITS
+#define ENABLE_CHIP_ERASE_EEPROM
 #define ENABLE_FLASH_ERASE_WRITE
 #define ENABLE_CRC_SUPPORT
 
@@ -229,6 +230,24 @@
 #error "ENTER_BLINK_COUNT / ENTER_BLINK_COUNT_SWRESET too large"
 #endif
 #endif // USE_ENTER_DELAY
+
+// Device code reported by 't'; avrdude echoes it back with 'T' before 'P'
+#define XBOOT_DEVICE_CODE 123
+
+#ifdef USE_WRITE_ARMING
+#define WS_LOCKED  0
+#define WS_PENDING 1    // got 'T' <XBOOT_DEVICE_CODE>; 'P' must be next
+#define WS_ARMED   2
+#define WRITES_ALLOWED (write_state == WS_ARMED)
+#else
+#define WRITES_ALLOWED 1
+#endif // USE_WRITE_ARMING
+
+#ifdef USE_BAD_COMMAND_LIMIT
+#if (USE_BAD_COMMAND_LIMIT) < 1 || (USE_BAD_COMMAND_LIMIT) > 255
+#error "USE_BAD_COMMAND_LIMIT must be 1..255 (consecutive unknown command bytes before reset)"
+#endif
+#endif // USE_BAD_COMMAND_LIMIT
 
 // ENTER_PIN
 #define ENTER_PORT              token_paste2(PORT, ENTER_PORT_NAME)

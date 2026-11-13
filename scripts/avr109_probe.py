@@ -9,9 +9,14 @@ is written back with the value it already has.
   uv run --with pyserial scripts/avr109_probe.py probe        --port P --ice SN --backup DIR
   uv run --with pyserial scripts/avr109_probe.py window-reset --port P --ice SN
   uv run --with pyserial scripts/avr109_probe.py window-boot  --port P
+  uv run --with pyserial scripts/avr109_probe.py stray        --port P --ice SN --backup DIR
 
 window-reset: time from ICE reset to the first byte from the application.
 window-boot:  same, after sending {"boot":1} to the running application.
+stray:        enter command mode, send the JSON that bricked a board in
+              issue #3, and check the bootloader resets to the application
+              without touching it: full application + EEPROM compared to the
+              backup over AVR109, lock byte read over PDI.
 """
 import argparse
 import subprocess
@@ -125,6 +130,11 @@ def probe(a):
     check("EEPROM block read 2 KB ('g' E)", ok and got == bytes(ee),
           "match" if got == bytes(ee) else f"MISMATCH ({len(got)} B)")
 
+    # Writes need avrdude's handshake end: 'T' <device code 0x7b> then 'P'.
+    r = b.cmd(b"t", 2)
+    check("device code 't' = 7b 00", r == b"\x7b\x00", r.hex())
+    check("arm writes: 'T' 7b then 'P' ack", b.cmd(b"T\x7b", 1) == b"\r" and b.cmd(b"P", 1) == b"\r")
+
     # Byte write: rewrite the last EEPROM byte with its current value.
     addr = EEPROM_SIZE - 1
     val = ee[addr]
@@ -140,7 +150,7 @@ def probe(a):
 
     for c, name in ((b"r", "lock"), (b"F", "fuse 'F'"), (b"N", "fuse 'N'"), (b"Q", "fuse 'Q'")):
         r = b.cmd(c, 1)
-        print(f"  [info] {name}: {r.hex() if r else 'no reply'}")
+        print(f"  [info] {name}: " + ("not supported ('?')" if r == b"?" else r.hex() if r else "no reply"))
 
     b.s.reset_input_buffer()
     r = b.cmd(b"E", 1)
@@ -150,6 +160,90 @@ def probe(a):
     first = b.s.read(1)
     check("application starts after exit", bool(first),
           f"first byte after {time.monotonic() - t0:.2f} s" if first else "no output in 10 s")
+    print(f"\n{sum(results)}/{len(results)} checks passed")
+    sys.exit(0 if all(results) else 1)
+
+
+def read_all(b, size, mem):
+    """Read `size` bytes of flash ('F') or EEPROM ('E') from address 0."""
+    out = b""
+    if mem == b"F":
+        for a in range(0, size, PAGE):
+            w = a >> 1
+            b.cmd(b"H" + bytes([w >> 16, (w >> 8) & 0xFF, w & 0xFF]), 1)
+            out += b.cmd(b"g\x02\x00F", PAGE, timeout=2.0)
+    else:
+        b.cmd(b"A\x00\x00", 1)
+        for _ in range(size // PAGE):
+            out += b.cmd(b"g\x02\x00E", PAGE, timeout=2.0)
+    return out
+
+
+def ice_lock(ice):
+    r = subprocess.run(
+        ["avrdude", "-q", "-q", "-c", "atmelice_pdi", "-P", f"usb:{ice}", "-p", "x192a3",
+         "-U", "lock:r:-:h"],
+        check=True, capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def stray(a):
+    app = load_ihex(f"{a.backup}/application.hex", 0x30000)
+    ee = load_ihex(f"{a.backup}/eeprom.hex", EEPROM_SIZE)
+    b = Boot(a.port)
+    b.s.reset_input_buffer()
+    ice_reset(a.ice)
+    if b.enter() is None:
+        print("Bootloader did not answer (no 'XBoot++' within 4 s of reset)")
+        sys.exit(1)
+    # Arm writes the way avrdude does, as if a flash had been interrupted.
+    check("arm writes: 'T' 7b then 'P' ack", b.cmd(b"T\x7b", 1) == b"\r" and b.cmd(b"P", 1) == b"\r")
+    # One unknown byte locks writes again: 'e' must now be refused.
+    r = b.cmd(b"v", 1) + b.cmd(b"S", 7) + b.cmd(b"e", 1, timeout=3.0) + b.cmd(b"S", 7)
+    check("after an unknown byte, chip erase 'e' is refused",
+          r == b"?XBoot++?XBoot++", repr(r))
+
+    # 'T' with a wrong device code locks an armed session.
+    check("re-arm: 'T' 7b then 'P' ack", b.cmd(b"T\x7b", 1) == b"\r" and b.cmd(b"P", 1) == b"\r")
+    r = b.cmd(b"T\x00", 1) + b.cmd(b"e", 1, timeout=3.0) + b.cmd(b"S", 7)
+    check("after 'T' with a wrong device code, chip erase 'e' is refused",
+          r == b"\r?XBoot++", repr(r))
+    # 'T' 7b followed by anything other than 'P' does not arm.
+    r = b.cmd(b"T\x7b", 1) + b.cmd(b"S", 7) + b.cmd(b"P", 1) + b.cmd(b"e", 1, timeout=3.0) + b.cmd(b"S", 7)
+    check("'T' 7b, another command, then 'P' does not arm ('e' refused)",
+          r == b"\rXBoot++\r?XBoot++", repr(r))
+
+    print("Sending the issue #3 start-up JSON")
+    b.cmd(b"T\x7b", 1)
+    b.cmd(b"P", 1)
+    b.s.reset_input_buffer()
+    t0 = time.monotonic()
+    b.s.write(b'{"js":1}\n{"ee":0}\n{"fb":null}\n')
+    b.s.timeout = 0.5
+    r = b.s.read(64)
+    check("only the first 2 bytes are answered ('?' '?'), the rest is not executed",
+          r == b"??", repr(r))
+    t = wait_app_output(b.s, 20)
+    dt = time.monotonic() - t0 if t else None
+    check("watchdog reset, entry window, then the application starts (expect ~6 s)",
+          dt is not None and 4.5 < dt < 10, f"{dt:.2f} s" if dt else "no output in 20 s")
+
+    time.sleep(1)
+    b.s.reset_input_buffer()
+    ice_reset(a.ice)
+    if b.enter() is None:
+        check("bootloader answers again", False)
+    else:
+        got = read_all(b, EEPROM_SIZE, b"E")
+        check("EEPROM unchanged (2 KB vs backup)", got == bytes(ee),
+              "match" if got == bytes(ee) else f"MISMATCH ({len(got)} B)")
+        got = read_all(b, len(app), b"F")
+        check("application unchanged (192 KB vs backup)", got == bytes(app),
+              "match" if got == bytes(app) else f"MISMATCH ({len(got)} B)")
+        b.s.reset_input_buffer()
+        b.cmd(b"E", 1)
+    lock = ice_lock(a.ice)
+    check("lock byte still 0xff (PDI)", lock.lower() == "0xff", lock)
     print(f"\n{sum(results)}/{len(results)} checks passed")
     sys.exit(0 if all(results) else 1)
 
@@ -181,13 +275,14 @@ def window_boot(a):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("mode", choices=["probe", "window-reset", "window-boot"])
+    p.add_argument("mode", choices=["probe", "window-reset", "window-boot", "stray"])
     p.add_argument("--port", required=True)
     p.add_argument("--ice")
     p.add_argument("--backup")
     a = p.parse_args()
-    if a.mode in ("probe", "window-reset") and not a.ice:
+    if a.mode in ("probe", "window-reset", "stray") and not a.ice:
         p.error("--ice SERIAL is required")
-    if a.mode == "probe" and not a.backup:
+    if a.mode in ("probe", "stray") and not a.backup:
         p.error("--backup DIR is required")
-    {"probe": probe, "window-reset": window_reset, "window-boot": window_boot}[a.mode](a)
+    {"probe": probe, "window-reset": window_reset, "window-boot": window_boot,
+     "stray": stray}[a.mode](a)

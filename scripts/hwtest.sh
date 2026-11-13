@@ -18,6 +18,8 @@
 # Fuses and lock bits are never written.
 #   reset                Reset the board through the ICE (starts the bootloader).
 #   avr109  <image.hex>  Reset via ICE, then flash + verify the image over USB
+#                        (avrdude -D; set ERASE=1 to let avrdude send the
+#                        bootloader's chip erase 'e' first)
 #                        serial through the bootloader (needs PORT).
 set -eu
 
@@ -109,7 +111,8 @@ avr109)
     [ -n "${1:-}" ] && [ -s "$1" ] || { echo "usage: $0 avr109 <image.hex>" >&2; exit 2; }
     [ -n "${PORT:-}" ] || { echo "set PORT to the TinyG serial device" >&2; exit 2; }
     pdi -U signature:r:-:h >/dev/null
-    avrdude -p "$MCU" -c avr109 -P "$PORT" -b 115200 -U flash:w:"$1":i
+    if [ "${ERASE:-0}" = 1 ]; then noerase=""; else noerase="-D"; fi
+    avrdude -p "$MCU" -c avr109 -P "$PORT" -b 115200 $noerase -U flash:w:"$1":i
     ;;
 *)
     sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
